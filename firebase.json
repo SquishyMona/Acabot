@@ -1,0 +1,14 @@
+{
+  "functions": [
+    {
+      "source": "webhooks",
+      "codebase": "webhooks",
+      "ignore": [
+        "venv",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+py-cord
+py-cord[voice]
+firebase_functions~=0.1.0
+discord-webhook
+google-auth-oauthlib
+oauthlib
+requests-oauthlib
+python-dateutil
+google-api-python-client 
+google-auth-httplib2
+python-dotenv
+wavelink
