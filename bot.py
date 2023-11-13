@@ -56,7 +56,7 @@ def getCalID(ctx, calendar=''):
             else:
                 return os.getenv('SLIH_GIGS_CAL_ID')
 
-# This function connects our bot to Lavalink servers for music playback
+# This function connects our bot to Lavalink servers for music playback 
 async def connect_nodes():
     await bot.wait_until_ready()
     node = wavelink.Node(uri='narco.buses.rocks:2269', password='glasshost1984')
