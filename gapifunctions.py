@@ -26,7 +26,7 @@ SERVICE_ACCOUNT_FILE = 'acabot-398317-b2293b5c6d43.json'
 credentials = service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
-# This function is used when watch channels are about to expire. It must be invoked manually
+# This function is used when watch channels are about to expire.
 # First, the function checks for any active watch channels and, if it finds any, stops them. 
 # Then, it creates new watch channels for the calendars that the bot is watching. These channels
 # will expire in 7 days, so this function must be called at least once a week. It will save the 

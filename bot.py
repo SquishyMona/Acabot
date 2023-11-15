@@ -67,6 +67,7 @@ async def on_ready():
     bot.add_view(PollView())
     print(f'{bot.user} is online and ready')
     await connect_nodes()
+    incremental_sync.start()
 
 @bot.event
 async def on_wavelink_node_ready(node: wavelink.Node):
@@ -77,7 +78,7 @@ async def startwebhooks():
     await bot.wait_until_ready()
     calapi_startwebhooks()
 
-@tasks.loop(hours=48)
+@tasks.loop(minutes=5)
 async def incremental_sync():
     await bot.wait_until_ready()
     calapi_incrementalsync()
