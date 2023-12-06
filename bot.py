@@ -45,6 +45,10 @@ musicqueue = wavelink.Queue()
 credentials = service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
+# This object holds events that have already been seen by the bot, so that we don't send duplicate messages
+# for the same event.
+seen_events = []
+
 # This function is used to get the ID of the calendar we're using for a specific guild.
 def getCalID(ctx, calendar=''):
     if(ctx.guild.id == 1148389231484489860 or ctx.guild.id == 608476415825936394):
@@ -57,17 +61,19 @@ def getCalID(ctx, calendar=''):
                 return os.getenv('SLIH_GIGS_CAL_ID')
 
 # This function connects our bot to Lavalink servers for music playback 
-async def connect_nodes():
+async def connect_nodes(self):
     await bot.wait_until_ready()
-    node = wavelink.Node(uri='narco.buses.rocks:2269', password='glasshost1984')
-    await wavelink.NodePool.connect(client=bot, nodes=[node])
+    nodes = [wavelink.Node(uri='lava-v4.sirplancake.dev:2333', password="KBjV?Cs>#B!>pcEZa?yc1%Vy")]
+    await wavelink.Pool.connect(nodes=nodes, client=self.bot, cache_capacity=100)
 
 @bot.event
 async def on_ready():
     bot.add_view(PollView())
     print(f'{bot.user} is online and ready')
-    await connect_nodes()
+    #await connect_nodes()
     incremental_sync.start()
+    get_upcoming.start()
+    startwebhooks.start()
 
 @bot.event
 async def on_wavelink_node_ready(node: wavelink.Node):
@@ -82,6 +88,45 @@ async def startwebhooks():
 async def incremental_sync():
     await bot.wait_until_ready()
     calapi_incrementalsync()
+
+@tasks.loop(minutes=30)
+async def get_upcoming():
+    await bot.wait_until_ready()
+    print('Starting Task')
+    events = calapi_getupcoming()
+    if events == None:
+        return
+    else:
+        for event in events:
+            if event['id'] in seen_events:
+                continue
+            else:
+                seen_events.append(event['id'])
+                channel = bot.get_channel(1148414047704850432)
+                embed = discord.Embed(title=event['summary'], color=discord.Colour.dark_magenta())
+                start = event['start'].get('dateTime')
+                if start == None:
+                    start = event['start'].get('date')
+                    embed.description = datetime.datetime.strftime(dtparse(start), format='%B %d, %Y')
+                    embed.add_field(name="Time", value="TBD", inline=True)
+                else:
+                    tmfmt = '%B %d, %Y'
+                    sdate = datetime.datetime.strftime(dtparse(start), format=tmfmt)
+                    embed.description = sdate
+                    stime= datetime.datetime.strftime(dtparse(start), format='%I:%M %p')
+                    etime = datetime.datetime.strftime(dtparse(event['end'].get('dateTime')), format='%I:%M %p')
+                    embed.add_field(name="Start Time", value=stime, inline=True)
+                    embed.add_field(name="End Time", value=etime, inline=True)
+                try:
+                    embed.add_field(name="Location", value=event['location'], inline=False)
+                except:
+                    pass
+                try:
+                    embed.add_field(name="Description", value=event['description'], inline=False)
+                except:
+                    pass
+                embed.add_field(name="More Details", value=f"[View in Google Calendar]({event.get('htmlLink')})", inline=False)
+                await channel.send('An event is coming up! See details below.', embed=embed)
 
 @bot.slash_command(name="ping", description="Simple command to test if the bot is responsive", guild_ids=GUILD_IDS)
 async def ping(ctx):
@@ -246,7 +291,7 @@ async def play(ctx, name: str):
             await ctx.respond("You must be in the same voice channel as the bot to use music commands!", ephemeral=True)
             return
         
-        song = await wavelink.YouTubeTrack.search(name)
+        song = await wavelink.Playable.search(name)
 
         if not song:
             await ctx.respond("No songs found with that name.", ephemeral=True)
@@ -358,15 +403,6 @@ async def skip(ctx):
     except Exception as e:
         await ctx.respond(f"Something went wrong!", ephemeral=True)
         print(e)
-
-#drive = SlashCommandGroup("drive", "Commands used to interact with Google Drive", guild_ids=GUILD_IDS)
-#
-#@drive.command(name="play", description="Play a song or playlist from Google Drive", guild_ids=GUILD_IDS)
-#async def driveplay(ctx):
-#    driveapi_listmusicfiles()
-#    driveapi_getfile('1G7t2pLraSjV6FgnQwRAXfaADv1DH7xFP')
-#    
-#    await ctx.respond("This command is not yet implemented!")
 
 # Music queue commands
 queue = music.create_subgroup(name="queue", description="Commands used to interact with the queue")
@@ -566,6 +602,5 @@ async def poll(ctx,
 
 bot.add_application_command(calendar)
 bot.add_application_command(music)
-#bot.add_application_command(drive)
 
 bot.run(os.getenv('BOT_KEY'))

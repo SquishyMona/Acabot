@@ -58,7 +58,6 @@ def calapi_startwebhooks():
         service.channels().stop(body=currentslihrehearsals).execute()
     except:
         print('No active channels found. Are you in the right directory?')
-        return
 
     acapella = {
     'id': str(uuid.uuid4()),
@@ -120,6 +119,31 @@ def calapi_incrementalsync():
 
     res = requests.post(url, headers=headers)
     print(res.text)
+
+def calapi_getupcoming():
+    try:
+        service = build('calendar', 'v3', credentials=credentials)
+
+        now = datetime.datetime.utcnow().isoformat() + 'Z'
+        maxTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        maxTime = maxTime.isoformat() + 'Z'
+        print('Getting the upcoming 10 events')
+        events_result = service.events().list(calendarId=os.getenv('ACAPELLA_CAL_ID'), timeMin=now,
+                                              timeMax=maxTime,
+                                              maxResults=10, singleEvents=True,
+                                              orderBy='startTime').execute()
+        events = events_result.get('items', [])
+        print(events_result)
+
+        if not events:
+            print('No upcoming events found.')
+            return
+
+        return events
+
+    except HttpError as error:
+        print('An error occurred: %s' % error)
+        return 'An error has occurred, check bot logs for more information.'
     
 
 # Calls the Google Calendar API to get the next 10 events on the calendar.
