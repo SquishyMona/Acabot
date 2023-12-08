@@ -89,7 +89,7 @@ async def incremental_sync():
     await bot.wait_until_ready()
     calapi_incrementalsync()
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=1)
 async def get_upcoming():
     await bot.wait_until_ready()
     print('Starting Task')
@@ -126,7 +126,10 @@ async def get_upcoming():
                 except:
                     pass
                 embed.add_field(name="More Details", value=f"[View in Google Calendar]({event.get('htmlLink')})", inline=False)
-                await channel.send('An event is coming up! See details below.', embed=embed)
+                message = await channel.send('An event is coming up! See details below.', embed=embed)
+                if channel.type == discord.ChannelType.news:
+                    await message.publish()
+
 
 @bot.slash_command(name="ping", description="Simple command to test if the bot is responsive", guild_ids=GUILD_IDS)
 async def ping(ctx):
