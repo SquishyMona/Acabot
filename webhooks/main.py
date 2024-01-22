@@ -6,6 +6,8 @@ from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dateutil import parser as dtparse
+from dateutil import relativedelta
+import requests
 import json
 import dotenv
 import os
@@ -51,14 +53,17 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
         calendarId = os.getenv('ACAPELLA_CAL_ID')
         webhookurl = os.getenv('ACAPELLA_WEBHOOK')
         token = 'acapella'
+        guildID = os.getenv('ACAPELLA_GUILD_ID')
     if req.headers.get('x-goog-resource-id') == os.getenv('SLIH_REH_RESOURCEID'):
         calendarId = os.getenv('SLIH_REH_CAL_ID')
         webhookurl = os.getenv('SLIH_REH_WEBHOOK')
         token = 'slih_reh'
+        guildID = os.getenv('SLIH_GUILD_ID')
     if req.headers.get('x-goog-resource-id') == os.getenv('SLIH_GIGS_RESOURCEID'):
         calendarId = os.getenv('SLIH_GIGS_CAL_ID')
         webhookurl = os.getenv('SLIH_GIGS_WEBHOOK')
         token = 'slih_gigs'
+        guildID = os.getenv('SLIH_GUILD_ID')
     
     # In an event of a sync notification, we'll need to get new sync tokens to use in our subsequent requests. In this
     # case, we'll check for a sync notification, then to get our next sync token, we'll make and 'event list' request
@@ -111,13 +116,36 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
         events = events_result.get('items', [])
 
         for event in events:
+            try:
+                discord_event_data = json.dumps({
+                    "name": event['summary'],
+                    "privacy_level": 2,
+                    "scheduled_start_time": dtparse.parse(event['start']['dateTime']).isoformat().replace('+00:00', '+05:00'),
+                    "scheduled_end_time": dtparse.parse(event['end']['dateTime']).isoformat().replace('+00:00', '+05:00'),
+                    "description": event['description'],
+                    "channel_id": None,
+                    "entity_metadata": {'location': event['location']},
+                    "entity_type": 3
+                })
+            except:
+                pass
+            discord_event_url = f'https://discord.com/api/v10/guilds/{guildID}/scheduled-events'
+            discord_event_headers = {
+                'Authorization': f'Bot {os.getenv("BOT_KEY")}',
+                'User-Agent': f'DiscordBot (https://discord.com/api/oauth2/authorize?client_id={os.getenv("CLIENT_ID")}) Python/3.11 aiohttp/3.8.1',
+                'Content-Type': 'application/json'
+            }
             # If an event has 'confirmed' status, we need to check if it's a new event, or an existing event that's
-            # been updated. In this case, we'll check the 'created' and 'updated' fields to see if they're the same.
-            # This might not be completely accurate, as there's a millisecond difference between 'created' and 'updated'
-            # when an event is created, but it's the best we can do for now. To help this fact, we'll also cut the
-            # milliseconds from our calculations. After all this, the notification will be sent to our Discord webhook
+            # been updated. To do this, we compare the times between event creation and the last time the event was
+            # updated. There's about a second delay between when the event is created and when it says it was last updated.
+            # To determine if the event is new or updated, we'll subtract 2 seconds from the event's last updated timestamp.
+            # We then compare to see if the event creation time is less than the event updated time. If it isn't, the event
+            # is new. We need this calculation for the purposes of creating and managing Discord scheduled events. If it is, 
+            # the event already exists and has been updated. After all this, the notification will be sent to our Discord webhook
             if event['status'] == 'confirmed':
-                if int(dtparse.parse(event['created']).strftime('%Y%m%d%H%M%S')) != int(dtparse.parse(event['updated']).strftime('%Y%m%d%H%M%S')):
+                dtdelta = dtparse.parse(event['updated'])
+                dtdelta = dtdelta - relativedelta.relativedelta(seconds=+2)
+                if dtparse.parse(event['created']) <= dtdelta:
                     print(f"An event on calendar {token} has been updated. Debug Info:\n\n{event}")
                     webhook = DiscordWebhook(url=webhookurl, content="An event has been updated!")
                     embed = DiscordEmbed(title=event['summary'], description=f'[View on Google Calendar]({event["htmlLink"]})', color=242424)
@@ -138,6 +166,27 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         pass
                     webhook.add_embed(embed)
                     webhook.execute()
+                    try:
+                        # If our event is an existing event that's been updated, we'll also update the scheduled event in our Discord server.
+                        discord_event_modify = json.dumps({
+                            "name": event['summary'],
+                            "scheduled_start_time": dtparse.parse(event['start']['dateTime']).isoformat().replace('+00:00', '+05:00'),
+                            "scheduled_end_time": dtparse.parse(event['end']['dateTime']).isoformat().replace('+00:00', '+05:00'),
+                            "description": event['description'],
+                            "entity_metadata": {'location': event['location']}
+                        })
+                        discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
+                        print(discord_events_list.text)
+                        modify_event_id = None
+                        for discord_event in discord_events_list.json():
+                            if discord_event['name'] == event['summary']:
+                                modify_event_id = discord_event['id']
+                        if modify_event_id is None:
+                            raise Exception("No event found in Discord server.")
+                        discord_event_req = requests.patch(f'{discord_event_url}/{modify_event_id}', headers=discord_event_headers, data=discord_event_modify)
+                        print(discord_event_req.text)
+                    except Exception as e:
+                        print(e)
                 else: 
                     print(f"A new event on calendar {token} has been added. Debug Info:\n\n{event}")
                     webhook = DiscordWebhook(url=webhookurl, content="A new event has been added!")
@@ -159,6 +208,13 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         pass
                     webhook.add_embed(embed)
                     webhook.execute()
+                    try:
+                        # If our event is a brand new event, we'll also create a new scheduled event is our Discord server.
+                        discord_event_req = requests.post(discord_event_url, headers=discord_event_headers, data=discord_event_data)
+                        print(discord_event_req.text)
+
+                    except Exception as e:
+                        print(e)
             # If an event has 'cancelled' status, we'll send a notification to Discord that the event has been cancelled.
             elif event['status'] == 'cancelled':
                 print(f"An event on calendar {token} has been removed. Debug Info:\n\n{event}")
@@ -182,6 +238,21 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     pass
                 webhook.add_embed(embed)
                 webhook.execute()
+                
+                try:
+                    # If our event is cancelled, we'll also delete the scheduled event in our Discord server
+                    discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
+                    print(discord_events_list.text)
+                    delete_event_id = None
+                    for discord_event in discord_events_list.json():
+                        if discord_event['name'] == cancelledevent['summary']:
+                            delete_event_id = discord_event['id']
+                    if delete_event_id is None:
+                        raise Exception("No event found in Discord server.")
+                    discord_event_req = requests.delete(f'{discord_event_url}/{delete_event_id}', headers=discord_event_headers)
+                    print(discord_event_req.text)
+                except Exception as e:
+                    print(e)
 
                 # This code is from when I was testing, it'll be removed at some point
                 test = service.events().list(calendarId=calendarId).execute()
