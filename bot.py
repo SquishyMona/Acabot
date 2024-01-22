@@ -49,6 +49,11 @@ credentials = service_account.Credentials.from_service_account_file(
 # for the same event.
 seen_events = []
 
+# This object holds the IDs of events that have been created both on Google Calendar and Discord, using
+# the GCal ID as a key and the Discord ID as the value. These are used for syncing events between the two
+# platforms.
+eventids = {}
+
 # This function is used to get the ID of the calendar we're using for a specific guild.
 def getCalID(ctx, calendar=''):
     if(ctx.guild.id == 1148389231484489860 or ctx.guild.id == 608476415825936394):
@@ -77,7 +82,66 @@ async def on_ready():
 
 @bot.event
 async def on_wavelink_node_ready(node: wavelink.Node):
-    print(f"Wavelink node {node.id} ready.")   
+    print(f"Wavelink node {node.id} ready.")  
+
+# When a new scheduled event is created on Discord, we will also create a new event
+# on the Google Calendar.
+@bot.event
+async def on_scheduled_event_create(event: discord.ScheduledEvent): 
+    calid = None
+    match event.guild.id:
+        case 1148389231484489860:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 608476415825936394:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 1118643846688030730:
+            calid = os.getenv('SLIH_GIGS_CAL_ID')
+        case _:
+            print('Guild not found')
+            return
+    event = {
+        'summary': event.name, 
+        'description': event.description,
+        'location': str(event.location),
+        'start': {
+            'dateTime': f'{event.start_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        },
+        'end': {
+            'dateTime': f'{event.end_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        }
+    }
+    link = calapi_createevent(event, calid)
+
+# When a scheduled event is updated, we will also update the event on the Google Calendar.
+@bot.event
+async def on_scheduled_event_update(event: discord.ScheduledEvent):
+    calid = None
+    match event.guild.id:
+        case 1148389231484489860:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 608476415825936394:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 1118643846688030730:
+            calid = os.getenv('SLIH_GIGS_CAL_ID')
+        case _:
+            print('Guild not found')
+            return
+    event = {
+        'summary': event.name, 
+        'description': event.description,
+        'location': str(event.location),
+        'start': {
+            'dateTime': f'{event.start_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        },
+        'end': {
+            'dateTime': f'{event.end_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        }
+    }
+    link = calapi_createevent(event, calid)
 
 @tasks.loop(hours=167)
 async def startwebhooks():

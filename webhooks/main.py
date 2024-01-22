@@ -127,6 +127,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     "entity_metadata": {'location': event['location']},
                     "entity_type": 3
                 })
+                
             except:
                 pass
             discord_event_url = f'https://discord.com/api/v10/guilds/{guildID}/scheduled-events'
