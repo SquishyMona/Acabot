@@ -117,15 +117,17 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
         events = events_result.get('items', [])
 
         for event in events:
+            description = event.get('description')
+            location = event.get('location')
             try:
                 discord_event_data = json.dumps({
                     "name": event['summary'],
                     "privacy_level": 2,
                     "scheduled_start_time": dtparse.parse(event['start']['dateTime']).isoformat().replace('+00:00', '+05:00'),
                     "scheduled_end_time": dtparse.parse(event['end']['dateTime']).isoformat().replace('+00:00', '+05:00'),
-                    "description": event['description'],
+                    "description": description,
                     "channel_id": None,
-                    "entity_metadata": {'location': event['location']},
+                    "entity_metadata": {'location': location},
                     "entity_type": 3
                 })
                 
@@ -174,14 +176,14 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                             "name": event['summary'],
                             "scheduled_start_time": dtparse.parse(event['start']['dateTime']).isoformat().replace('+00:00', '+05:00'),
                             "scheduled_end_time": dtparse.parse(event['end']['dateTime']).isoformat().replace('+00:00', '+05:00'),
-                            "description": event['description'],
-                            "entity_metadata": {'location': event['location']}
+                            "description": description,
+                            "entity_metadata": {'location': location}
                         })
                         discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
                         print(discord_events_list.text)
                         modify_event_id = None
                         for discord_event in discord_events_list.json():
-                            if discord_event['name'] == event['summary']:
+                            if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')):
                                 modify_event_id = discord_event['id']
                         if modify_event_id is None:
                             raise Exception("No event found in Discord server.")
@@ -212,6 +214,9 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     webhook.execute()
                     try:
                         # If our event is a brand new event, we'll also create a new scheduled event is our Discord server.
+                        # This will also check to see if the event already exists in our Discord server, in the case that
+                        # the event was created in Discord. This will prevent duplicate events from being created, as well
+                        # as preventing an infinite loop of events being created in both Google Calendar and Discord.
                         discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
                         print(discord_events_list.text)
                         for discord_event in discord_events_list.json():

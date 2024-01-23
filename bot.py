@@ -116,10 +116,11 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
 
     existing_events = calapi_getevents(calid)
     for gcalevent in existing_events:
+        description = gcalevent.get('description')
         try:
             duplicate = {
                 'summary': gcalevent['summary'],
-                'description': gcalevent['description'],
+                'description': description,
                 'location': gcalevent['location'],
                 'start': {
                     'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
@@ -154,6 +155,59 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
             print('Guild not found')
             return
     event = {
+        'summary': f'{event.id}:{event.name}', 
+        'description': event.description,
+        'location': str(event.location),
+        'start': {
+            'dateTime': f'{event.start_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        },
+        'end': {
+            'dateTime': f'{event.end_time.isoformat()}',
+            'timeZone': 'America/New_York'
+        }
+    }
+
+    existing_events = calapi_getevents(calid)
+    for gcalevent in existing_events:
+        description = gcalevent.get('description')
+        try:
+            duplicate = {
+                'summary': gcalevent['summary'],
+                'description': description,
+                'location': gcalevent['location'],
+                'start': {
+                    'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['start'].get('timeZone')
+                },
+                'end': {
+                    'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['end'].get('timeZone')
+                }
+            }
+            if event == duplicate:
+                service = build('calendar', 'v3', credentials=credentials)
+                service.events().update(calendarId=calid, eventId=gcalevent['id'], body=event).execute()
+                return
+        except Exception as e:
+            print(e)
+            pass
+
+# When a scheduled event is deleted, we will also delete the event on the Google Calendar.
+@bot.event
+async def on_scheduled_event_delete(event: discord.ScheduledEvent):
+    calid = None
+    match event.guild.id:
+        case 1148389231484489860:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 608476415825936394:
+            calid = os.getenv('ACAPELLA_CAL_ID')
+        case 1118643846688030730:
+            calid = os.getenv('SLIH_GIGS_CAL_ID')
+        case _:
+            print('Guild not found')
+            return
+    event = {
         'summary': event.name, 
         'description': event.description,
         'location': str(event.location),
@@ -166,7 +220,33 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
             'timeZone': 'America/New_York'
         }
     }
-    link = calapi_createevent(event, calid)
+
+    existing_events = calapi_getevents(calid)
+    for gcalevent in existing_events:
+        description = gcalevent.get('description')
+        location = gcalevent.get('location')
+        try:
+            duplicate = {
+                'summary': gcalevent['summary'],
+                'description': description,
+                'location': location,
+                'start': {
+                    'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['start'].get('timeZone')
+                },
+                'end': {
+                    'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['end'].get('timeZone')
+                }
+            }
+            if event == duplicate:
+                service = build('calendar', 'v3', credentials=credentials)
+                service.events().delete(calendarId=calid, eventId=gcalevent['id']).execute()
+                return
+        except Exception as e:
+            print(e)
+            pass
+            
 
 @tasks.loop(hours=167)
 async def startwebhooks():
