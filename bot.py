@@ -50,11 +50,6 @@ credentials = service_account.Credentials.from_service_account_file(
 # for the same event.
 seen_events = []
 
-# This object holds the IDs of events that have been created both on Google Calendar and Discord, using
-# the GCal ID as a key and the Discord ID as the value. These are used for syncing events between the two
-# platforms.
-eventids = {}
-
 # This function is used to get the ID of the calendar we're using for a specific guild.
 def getCalID(ctx, calendar=''):
     if(ctx.guild.id == 1148389231484489860 or ctx.guild.id == 608476415825936394):
@@ -131,8 +126,11 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
                     'timeZone': gcalevent['end'].get('timeZone')
                 }
             }
-            print(f'{event}/n{duplicate}')
             if event == duplicate:
+                with open('activeevents.json', 'r+') as file:
+                    activeevents = json.load(file)
+                    activeevents[event.id] = [gcalevent['id']]
+                    json.dump(activeevents, file)
                 return
         except Exception as e:
             print(e)
@@ -143,6 +141,8 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
 # When a scheduled event is updated, we will also update the event on the Google Calendar.
 @bot.event
 async def on_scheduled_event_update(event: discord.ScheduledEvent):
+    service = build('calendar', 'v3', credentials=credentials)
+
     calid = None
     match event.guild.id:
         case 1148389231484489860:
@@ -154,9 +154,13 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
         case _:
             print('Guild not found')
             return
+    
+    description = event.description
+    if description == None:
+        description = ''
     event = {
-        'summary': f'{event.id}:{event.name}', 
-        'description': event.description,
+        'summary': event.name, 
+        'description': description,
         'location': str(event.location),
         'start': {
             'dateTime': f'{event.start_time.isoformat()}',
@@ -168,30 +172,27 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
         }
     }
 
-    existing_events = calapi_getevents(calid)
-    for gcalevent in existing_events:
-        description = gcalevent.get('description')
-        try:
-            duplicate = {
-                'summary': gcalevent['summary'],
+    with open('activeevents.json', 'r') as file:
+        activeevents = json.load(file)
+        modify_event = service.events().get(calendarId=calid, eventId=activeevents[event.id])
+        duplicate = {
+                'summary': modify_event['summary'],
                 'description': description,
-                'location': gcalevent['location'],
+                'location': modify_event['location'],
                 'start': {
-                    'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-                    'timeZone': gcalevent['start'].get('timeZone')
+                    'dateTime': str(dtparse(modify_event['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': modify_event['start'].get('timeZone')
                 },
                 'end': {
-                    'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-                    'timeZone': gcalevent['end'].get('timeZone')
+                    'dateTime': str(dtparse(modify_event['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': modify_event['end'].get('timeZone')
                 }
             }
-            if event == duplicate:
-                service = build('calendar', 'v3', credentials=credentials)
-                service.events().update(calendarId=calid, eventId=gcalevent['id'], body=event).execute()
-                return
-        except Exception as e:
-            print(e)
-            pass
+        if duplicate == event:
+            return
+        else:
+            updated = service.events().update(calendarId=calid, eventId=activeevents[event.id], body=event)
+            print(updated)
 
 # When a scheduled event is deleted, we will also delete the event on the Google Calendar.
 @bot.event

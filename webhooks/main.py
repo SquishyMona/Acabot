@@ -28,10 +28,11 @@ credentials = service_account.Credentials.from_service_account_file(
 def on_request_example(req: https_fn.Request) -> https_fn.Response:
     service = build('calendar', 'v3', credentials=credentials)
 
-    # This section may be needed in the future, pending testing. This will handle a POST request with a header
-    # 'message' set to 'incremental-sync'. This will trigger a full sync to be performed, which will get new sync
-    # tokens for each calendar. Sync tokens may expire after a set period of time, so idealy, this function would
-    # be called every so often to ensure we always have valid tokens.
+    # This section is used when a request with an 'incremental-sync' header
+    # comes through. When this happens, we will perform a full sync in order
+    # to get new sync tokens. This is needed since sync tokens will expire
+    # if they are not used in a timley manner, so this ensures that we
+    # always have an up-to-date token to use to fetch calendar changes
     if req.headers.get('message') == 'incremental-sync':
         try:
             print("Incremental sync received, getting new tokens.")
@@ -49,7 +50,8 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
         except:
             return https_fn.Response("Incremental sync failed, see Cloud Logs.")
 
-    # Read the headers of the request to grab the Resource ID, then use that to determine which webhook to send to
+    # Read the headers of the request to grab the Resource ID, then use that to determine which webhook URL
+    # and calendar ID to use
     if req.headers.get('x-goog-resource-id') == os.getenv('ACAPELLA_RESOURCEID'):
         calendarId = os.getenv('ACAPELLA_CAL_ID')
         webhookurl = os.getenv('ACAPELLA_WEBHOOK')
@@ -66,10 +68,10 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
         token = 'slih_gigs'
         guildID = os.getenv('SLIH_GUILD_ID')
     
-    # In an event of a sync notification, we'll need to get new sync tokens to use in our subsequent requests. In this
-    # case, we'll check for a sync notification, then to get our next sync token, we'll make and 'event list' request
-    # to the API, grab the sync token, then store it in a JSON file to use in our next request. The sync token is used
-    # to determine which events have been updated since the last request.
+    # In an event of a sync notification, we'll need to get sync tokens to use in our subsequent requests. 
+    # Here, we save the sync token given to us by making an 'event list' request to the API. We'll then 
+    # store it in a JSON file to use in our next request. The sync token is used to determine what has 
+    # changed since the last request.
     if req.headers.get('x-goog-resource-state') == 'sync':
         with open('synctoken.json') as json_file:
             nextSyncToken = json.load(json_file)
@@ -81,7 +83,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
             json.dump(nextSyncToken, outfile)
         return https_fn.Response("Sync event received")
     
-    # If the event is not a sync notification, something has changed on one of our calendars.
+    # If the event is not a sync notification or an incremental sync, we'll assume that something has changed
     else:
         print("Changes detected.")
         with open('synctoken.json') as json_file:
@@ -90,10 +92,9 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
             events_result = service.events().list(calendarId=calendarId, syncToken=nextSyncToken[token]).execute()
 
         # If we get a 410 error, our sync token has expired. In this case, we'll need to get a new sync token for each
-        # calendar. We can then call the entire function again to get the new events. I'm not entirely sure if this
-        # will get us the new events from the previous sync token, but from a first test it looks like it might. If it
-        # ends up not doing this, the section of code towards the top of the function will be used to periodically get
-        # new sync tokens so we always have a valid one.
+        # calendar. Unfortunetly, this means that we won't get any recently changed events since the token expiration.
+        # However, we have some methods in place to ensure that we always have a valid sync token, so this shouldn't
+        # happen often
         except HttpError as err:
             if err.resp.status == 410:
                 print("Sync token expired, getting new token.")
@@ -116,9 +117,18 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
             json.dump(nextSyncToken, outfile)
         events = events_result.get('items', [])
 
+        # Next, we'll start getting each event that has changed.
         for event in events:
-            description = event.get('description')
-            location = event.get('location')
+
+            # We'll start by constructing an event object for Discord. This allows us to also create a corresponding event in
+            # Discord so that we can have both a GCal event and a Discord event. We'll also construct our Discord API URL to
+            # send to, as well as some headers for our request.
+            description = str(event.get('description'))
+            if description == 'None':
+                description = ''
+            location = str(event.get('location'))
+            if location == 'None':
+                location = ''
             try:
                 discord_event_data = json.dumps({
                     "name": event['summary'],
@@ -139,6 +149,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                 'User-Agent': f'DiscordBot (https://discord.com/api/oauth2/authorize?client_id={os.getenv("CLIENT_ID")}) Python/3.11 aiohttp/3.8.1',
                 'Content-Type': 'application/json'
             }
+
             # If an event has 'confirmed' status, we need to check if it's a new event, or an existing event that's
             # been updated. To do this, we compare the times between event creation and the last time the event was
             # updated. There's about a second delay between when the event is created and when it says it was last updated.
@@ -170,6 +181,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         pass
                     webhook.add_embed(embed)
                     webhook.execute()
+                    
                     try:
                         # If our event is an existing event that's been updated, we'll also update the scheduled event in our Discord server.
                         discord_event_modify = json.dumps({
@@ -183,7 +195,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         print(discord_events_list.text)
                         modify_event_id = None
                         for discord_event in discord_events_list.json():
-                            if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')):
+                            if discord_event['name'] == event['summary']:
                                 modify_event_id = discord_event['id']
                         if modify_event_id is None:
                             raise Exception("No event found in Discord server.")
@@ -223,7 +235,6 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                             print(f'Name: {discord_event["name"]} {event["summary"]}\nStart Time: {dtparse.parse(discord_event["scheduled_start_time"])} {dtparse.parse(event["start"]["dateTime"]).astimezone(timezone("UTC"))}\n')
                             if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')):
                                 raise Exception("Event already exists in Discord server.")
-                            
                         discord_event_req = requests.post(discord_event_url, headers=discord_event_headers, data=discord_event_data)
                         print(discord_event_req.text)
                     except Exception as e:
