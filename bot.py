@@ -15,6 +15,7 @@ from discord.ext import commands
 from discord.ext import tasks
 from google.oauth2 import service_account
 from dateutil.parser import parse as dtparse
+from pytz import timezone
 
 
 # Defining some globals. Service account file should be located in the same directory as this file.
@@ -112,6 +113,30 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
             'timeZone': 'America/New_York'
         }
     }
+
+    existing_events = calapi_getevents(calid)
+    for gcalevent in existing_events:
+        try:
+            duplicate = {
+                'summary': gcalevent['summary'],
+                'description': gcalevent['description'],
+                'location': gcalevent['location'],
+                'start': {
+                    'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['start'].get('timeZone')
+                },
+                'end': {
+                    'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+                    'timeZone': gcalevent['end'].get('timeZone')
+                }
+            }
+            print(f'{event}/n{duplicate}')
+            if event == duplicate:
+                return
+        except Exception as e:
+            print(e)
+            pass
+        
     link = calapi_createevent(event, calid)
 
 # When a scheduled event is updated, we will also update the event on the Google Calendar.
@@ -341,7 +366,7 @@ async def list(ctx,
         }
             
     link = calapi_createevent(event, calid)
-    await ctx.respond("Your event has been created! You can find it at " + link, ephemeral=True)
+    await ctx.respond("Your event has been created! You can find it at " + link.get('htmlLink'), ephemeral=True)
 
 # Music Commands
 music = SlashCommandGroup("music", "Commands used to interact with the music player", guild_ids=GUILD_IDS)

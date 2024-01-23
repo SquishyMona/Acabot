@@ -56,6 +56,7 @@ def calapi_startwebhooks():
         service.channels().stop(body=currentacapella).execute()
         service.channels().stop(body=currentslihgigs).execute()
         service.channels().stop(body=currentslihrehearsals).execute()
+        
     except:
         print('No active channels found. Are you in the right directory?')
 
@@ -157,7 +158,6 @@ def calapi_getevents(calid: str):
                                               maxResults=10, singleEvents=True,
                                               orderBy='startTime').execute()
         events = events_result.get('items', [])
-        print(events_result)
 
         if not events:
             print('No upcoming events found.')
@@ -175,7 +175,7 @@ def calapi_createevent(newevent, calid: str):
         service = build('calendar', 'v3', credentials=credentials)
         event = service.events().insert(calendarId=calid, body=newevent).execute()
         print('Event created: %s' % (event.get('htmlLink')))
-        return event.get('htmlLink')
+        return event
     except HttpError as error:
         print('An error occurred: %s' % error)
 

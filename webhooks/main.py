@@ -7,6 +7,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dateutil import parser as dtparse
 from dateutil import relativedelta
+from pytz import timezone
 import requests
 import json
 import dotenv
@@ -211,11 +212,18 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     webhook.execute()
                     try:
                         # If our event is a brand new event, we'll also create a new scheduled event is our Discord server.
+                        discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
+                        print(discord_events_list.text)
+                        for discord_event in discord_events_list.json():
+                            print(f'Name: {discord_event["name"]} {event["summary"]}\nStart Time: {dtparse.parse(discord_event["scheduled_start_time"])} {dtparse.parse(event["start"]["dateTime"]).astimezone(timezone("UTC"))}\n')
+                            if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')):
+                                raise Exception("Event already exists in Discord server.")
+                            
                         discord_event_req = requests.post(discord_event_url, headers=discord_event_headers, data=discord_event_data)
                         print(discord_event_req.text)
-
                     except Exception as e:
                         print(e)
+                        return https_fn.Response("Request fulfilled.")
             # If an event has 'cancelled' status, we'll send a notification to Discord that the event has been cancelled.
             elif event['status'] == 'cancelled':
                 print(f"An event on calendar {token} has been removed. Debug Info:\n\n{event}")
