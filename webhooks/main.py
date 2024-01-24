@@ -12,6 +12,7 @@ import requests
 import json
 import dotenv
 import os
+import traceback
 
 dotenv.load_dotenv()
 
@@ -119,15 +120,12 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
 
         # Next, we'll start getting each event that has changed.
         for event in events:
-
             # We'll start by constructing an event object for Discord. This allows us to also create a corresponding event in
             # Discord so that we can have both a GCal event and a Discord event. We'll also construct our Discord API URL to
             # send to, as well as some headers for our request.
-            description = str(event.get('description'))
-            if description == 'None':
-                description = ''
-            location = str(event.get('location'))
-            if location == 'None':
+            description = event.get('description')
+            location = event.get('location')
+            if location == None:
                 location = ''
             try:
                 discord_event_data = json.dumps({
@@ -141,7 +139,8 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     "entity_type": 3
                 })
                 
-            except:
+            except Exception:
+                print(traceback.format_exc())
                 pass
             discord_event_url = f'https://discord.com/api/v10/guilds/{guildID}/scheduled-events'
             discord_event_headers = {
@@ -181,7 +180,7 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         pass
                     webhook.add_embed(embed)
                     webhook.execute()
-                    
+
                     try:
                         # If our event is an existing event that's been updated, we'll also update the scheduled event in our Discord server.
                         discord_event_modify = json.dumps({
@@ -191,18 +190,17 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                             "description": description,
                             "entity_metadata": {'location': location}
                         })
-                        discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
-                        print(discord_events_list.text)
-                        modify_event_id = None
-                        for discord_event in discord_events_list.json():
-                            if discord_event['name'] == event['summary']:
-                                modify_event_id = discord_event['id']
-                        if modify_event_id is None:
-                            raise Exception("No event found in Discord server.")
-                        discord_event_req = requests.patch(f'{discord_event_url}/{modify_event_id}', headers=discord_event_headers, data=discord_event_modify)
+                        with open('activeevents.json', 'r') as file:
+                            activeevents = json.load(file)
+                            print(activeevents)
+                        discord_event_req = requests.get(f'{discord_event_url}/{activeevents[event["id"]]}', headers=discord_event_headers)
+                        discord_event = discord_event_req.json()
+                        if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')) and discord_event['description'] == event['description'] and str(discord_event['entity_metadata']['location']) == str(event['location']):
+                            return
+                        discord_event_req = requests.patch(f'{discord_event_url}/{activeevents[event["id"]]}', headers=discord_event_headers, data=discord_event_modify)
                         print(discord_event_req.text)
                     except Exception as e:
-                        print(e)
+                        print(traceback.format_exc())
                 else: 
                     print(f"A new event on calendar {token} has been added. Debug Info:\n\n{event}")
                     webhook = DiscordWebhook(url=webhookurl, content="A new event has been added!")
@@ -230,15 +228,26 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                         # the event was created in Discord. This will prevent duplicate events from being created, as well
                         # as preventing an infinite loop of events being created in both Google Calendar and Discord.
                         discord_events_list = requests.get(discord_event_url, headers=discord_event_headers)
-                        print(discord_events_list.text)
+                        # print(discord_events_list.text)
+
                         for discord_event in discord_events_list.json():
-                            print(f'Name: {discord_event["name"]} {event["summary"]}\nStart Time: {dtparse.parse(discord_event["scheduled_start_time"])} {dtparse.parse(event["start"]["dateTime"]).astimezone(timezone("UTC"))}\n')
                             if discord_event['name'] == event['summary'] and dtparse.parse(discord_event['scheduled_start_time']) == dtparse.parse(event['start']['dateTime']).astimezone(timezone('UTC')) and dtparse.parse(discord_event['scheduled_end_time']) == dtparse.parse(event['end']['dateTime']).astimezone(timezone('UTC')):
+                                with open('activeevents.json', 'r+') as file:
+                                    activeevents = json.load(file)
+                                    activeevents[event['id']] = discord_event['id']
+                                    file.seek(0)
+                                    json.dump(activeevents, file)
                                 raise Exception("Event already exists in Discord server.")
-                        discord_event_req = requests.post(discord_event_url, headers=discord_event_headers, data=discord_event_data)
+                        discord_event_req:requests.Response = requests.post(discord_event_url, headers=discord_event_headers, data=discord_event_data)
+                        discord_event_res = discord_event_req.json()
+                        with open('activeevents.json', 'r+') as file:
+                            activeevents = json.load(file)
+                            activeevents[event['id']] = discord_event_res['id']
+                            file.seek(0)
+                            json.dump(activeevents, file)
                         print(discord_event_req.text)
                     except Exception as e:
-                        print(e)
+                        print(traceback.format_exc())
                         return https_fn.Response("Request fulfilled.")
             # If an event has 'cancelled' status, we'll send a notification to Discord that the event has been cancelled.
             elif event['status'] == 'cancelled':
@@ -275,9 +284,14 @@ def on_request_example(req: https_fn.Request) -> https_fn.Response:
                     if delete_event_id is None:
                         raise Exception("No event found in Discord server.")
                     discord_event_req = requests.delete(f'{discord_event_url}/{delete_event_id}', headers=discord_event_headers)
+                    with open('activeevents.json', 'r+') as file:
+                        activeevents = json.load(file)
+                        activeevents.remove(event['id'])
+                        file.seek(0)
+                        json.dump(activeevents, file)
                     print(discord_event_req.text)
                 except Exception as e:
-                    print(e)
+                    print(traceback.format_exc())
 
                 # This code is from when I was testing, it'll be removed at some point
                 test = service.events().list(calendarId=calendarId).execute()

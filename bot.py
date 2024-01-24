@@ -85,6 +85,7 @@ async def on_wavelink_node_ready(node: wavelink.Node):
 @bot.event
 async def on_scheduled_event_create(event: discord.ScheduledEvent): 
     calid = None
+    eventid = event.id
     match event.guild.id:
         case 1148389231484489860:
             calid = os.getenv('ACAPELLA_CAL_ID')
@@ -112,11 +113,14 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
     existing_events = calapi_getevents(calid)
     for gcalevent in existing_events:
         description = gcalevent.get('description')
+        location = gcalevent.get('location')
+        if location == None:
+            location = ''
         try:
             duplicate = {
                 'summary': gcalevent['summary'],
                 'description': description,
-                'location': gcalevent['location'],
+                'location': location,
                 'start': {
                     'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
                     'timeZone': gcalevent['start'].get('timeZone')
@@ -129,7 +133,8 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
             if event == duplicate:
                 with open('activeevents.json', 'r+') as file:
                     activeevents = json.load(file)
-                    activeevents[event.id] = [gcalevent['id']]
+                    activeevents[eventid] = gcalevent['id']
+                    file.seek(0)
                     json.dump(activeevents, file)
                 return
         except Exception as e:
@@ -137,12 +142,17 @@ async def on_scheduled_event_create(event: discord.ScheduledEvent):
             pass
         
     link = calapi_createevent(event, calid)
+    with open('activeevents.json', 'r+') as file:
+        activeevents = json.load(file)
+        activeevents[eventid] = link['id']
+        file.seek(0)
+        json.dump(activeevents, file)
 
 # When a scheduled event is updated, we will also update the event on the Google Calendar.
 @bot.event
-async def on_scheduled_event_update(event: discord.ScheduledEvent):
+async def on_scheduled_event_update(old, event: discord.ScheduledEvent):
     service = build('calendar', 'v3', credentials=credentials)
-
+    eventid = event.id
     calid = None
     match event.guild.id:
         case 1148389231484489860:
@@ -174,11 +184,18 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
 
     with open('activeevents.json', 'r') as file:
         activeevents = json.load(file)
-        modify_event = service.events().get(calendarId=calid, eventId=activeevents[event.id])
+        print(activeevents)
+        modify_event = service.events().get(calendarId=calid, eventId=activeevents[str(eventid)]).execute()
+        modify_desc = modify_event.get('description')
+        if modify_desc == None:
+            modify_desc = ''
+        modify_location = modify_event.get('location')
+        if modify_location == None:
+            modify_location = ''
         duplicate = {
                 'summary': modify_event['summary'],
-                'description': description,
-                'location': modify_event['location'],
+                'description': modify_desc,
+                'location': modify_location,
                 'start': {
                     'dateTime': str(dtparse(modify_event['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
                     'timeZone': modify_event['start'].get('timeZone')
@@ -191,13 +208,14 @@ async def on_scheduled_event_update(event: discord.ScheduledEvent):
         if duplicate == event:
             return
         else:
-            updated = service.events().update(calendarId=calid, eventId=activeevents[event.id], body=event)
+            updated = service.events().update(calendarId=calid, eventId=activeevents[str(eventid)], body=event).execute()
             print(updated)
 
 # When a scheduled event is deleted, we will also delete the event on the Google Calendar.
 @bot.event
 async def on_scheduled_event_delete(event: discord.ScheduledEvent):
     calid = None
+    eventid = event.id
     match event.guild.id:
         case 1148389231484489860:
             calid = os.getenv('ACAPELLA_CAL_ID')
@@ -208,45 +226,55 @@ async def on_scheduled_event_delete(event: discord.ScheduledEvent):
         case _:
             print('Guild not found')
             return
-    event = {
-        'summary': event.name, 
-        'description': event.description,
-        'location': str(event.location),
-        'start': {
-            'dateTime': f'{event.start_time.isoformat()}',
-            'timeZone': 'America/New_York'
-        },
-        'end': {
-            'dateTime': f'{event.end_time.isoformat()}',
-            'timeZone': 'America/New_York'
-        }
-    }
-
-    existing_events = calapi_getevents(calid)
-    for gcalevent in existing_events:
-        description = gcalevent.get('description')
-        location = gcalevent.get('location')
-        try:
-            duplicate = {
-                'summary': gcalevent['summary'],
-                'description': description,
-                'location': location,
-                'start': {
-                    'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-                    'timeZone': gcalevent['start'].get('timeZone')
-                },
-                'end': {
-                    'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-                    'timeZone': gcalevent['end'].get('timeZone')
-                }
-            }
-            if event == duplicate:
-                service = build('calendar', 'v3', credentials=credentials)
-                service.events().delete(calendarId=calid, eventId=gcalevent['id']).execute()
-                return
-        except Exception as e:
-            print(e)
-            pass
+    #event = {
+    #    'summary': event.name, 
+    #    'description': event.description,
+    #    'location': str(event.location),
+    #    'start': {
+    #        'dateTime': f'{event.start_time.isoformat()}',
+    #        'timeZone': 'America/New_York'
+    #    },
+    #    'end': {
+    #        'dateTime': f'{event.end_time.isoformat()}',
+    #        'timeZone': 'America/New_York'
+    #    }
+    #}
+#
+    #existing_events = calapi_getevents(calid)
+    #for gcalevent in existing_events:
+    #    description = gcalevent.get('description')
+    #    location = gcalevent.get('location')
+    #    try:
+    #        duplicate = {
+    #            'summary': gcalevent['summary'],
+    #            'description': description,
+    #            'location': location,
+    #            'start': {
+    #                'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+    #                'timeZone': gcalevent['start'].get('timeZone')
+    #            },
+    #            'end': {
+    #                'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
+    #                'timeZone': gcalevent['end'].get('timeZone')
+    #            }
+    #        }
+    #        if event == duplicate:
+    #            service = build('calendar', 'v3', credentials=credentials)
+    #            service.events().delete(calendarId=calid, eventId=gcalevent['id']).execute()
+    #            return
+    #    except Exception as e:
+    #        print(e)
+    #        pass
+    try:
+        with open('activeevents.json', 'r+') as file:
+            activeevents = json.load(file)
+            service = build('calendar', 'v3', credentials=credentials)
+            service.events().delete(calendarId=calid, eventId=activeevents[str(eventid)]).execute()
+            activeevents.pop(eventid)
+            file.seek(0)
+            json.dump(activeevents, file)
+    except Exception as e:
+        print(e)
             
 
 @tasks.loop(hours=167)
