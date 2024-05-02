@@ -17,7 +17,6 @@ from google.oauth2 import service_account
 from dateutil.parser import parse as dtparse
 from pytz import timezone
 
-
 # Defining some globals. Service account file should be located in the same directory as this file.
 # Guild IDs can be changed to fit your guilds.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -26,11 +25,6 @@ GUILD_IDS = [1148389231484489860, 608476415825936394, 1118643846688030730, 11997
 
 # Loads enviornment variables, which contains our bot token needed to run the bot
 load_dotenv()
-#logger = logging.getLogger('discord')
-#logger.setLevel(logging.DEBUG)
-#handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-#handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
-#logger.addHandler(handler)
 
 # Creation of our bot object, as well as defining some new objects.
 bot = discord.Bot()
@@ -43,8 +37,7 @@ activepolls = {}
 musicqueue = wavelink.Queue()
 
 # This object holds the credentials for our service account, which is used by the Google APIs
-credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
 # This object holds events that have already been seen by the bot, so that we don't send duplicate messages
 # for the same event.
@@ -184,7 +177,6 @@ async def on_scheduled_event_update(old, event: discord.ScheduledEvent):
 
     with open('activeevents.json', 'r') as file:
         activeevents = json.load(file)
-        print(activeevents)
         modify_event = service.events().get(calendarId=calid, eventId=activeevents[str(eventid)]).execute()
         modify_desc = modify_event.get('description')
         if modify_desc == None:
@@ -209,7 +201,7 @@ async def on_scheduled_event_update(old, event: discord.ScheduledEvent):
             return
         else:
             updated = service.events().update(calendarId=calid, eventId=activeevents[str(eventid)], body=event).execute()
-            print(updated)
+            print("Event updated: " + updated['id'])
 
 # When a scheduled event is deleted, we will also delete the event on the Google Calendar.
 @bot.event
@@ -226,45 +218,6 @@ async def on_scheduled_event_delete(event: discord.ScheduledEvent):
         case _:
             print('Guild not found')
             return
-    #event = {
-    #    'summary': event.name, 
-    #    'description': event.description,
-    #    'location': str(event.location),
-    #    'start': {
-    #        'dateTime': f'{event.start_time.isoformat()}',
-    #        'timeZone': 'America/New_York'
-    #    },
-    #    'end': {
-    #        'dateTime': f'{event.end_time.isoformat()}',
-    #        'timeZone': 'America/New_York'
-    #    }
-    #}
-#
-    #existing_events = calapi_getevents(calid)
-    #for gcalevent in existing_events:
-    #    description = gcalevent.get('description')
-    #    location = gcalevent.get('location')
-    #    try:
-    #        duplicate = {
-    #            'summary': gcalevent['summary'],
-    #            'description': description,
-    #            'location': location,
-    #            'start': {
-    #                'dateTime': str(dtparse(gcalevent['start'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-    #                'timeZone': gcalevent['start'].get('timeZone')
-    #            },
-    #            'end': {
-    #                'dateTime': str(dtparse(gcalevent['end'].get('dateTime')).astimezone(timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S+00:00")),
-    #                'timeZone': gcalevent['end'].get('timeZone')
-    #            }
-    #        }
-    #        if event == duplicate:
-    #            service = build('calendar', 'v3', credentials=credentials)
-    #            service.events().delete(calendarId=calid, eventId=gcalevent['id']).execute()
-    #            return
-    #    except Exception as e:
-    #        print(e)
-    #        pass
     try:
         with open('activeevents.json', 'r+') as file:
             activeevents = json.load(file)
@@ -280,45 +233,45 @@ async def on_scheduled_event_delete(event: discord.ScheduledEvent):
 @tasks.loop(hours=167)
 async def startwebhooks():
     await bot.wait_until_ready()
-    print('Starting task: startwebhooks()...')
+    print('\n---------------\nStarting task: startwebhooks()...')
     calapi_startwebhooks()
-    print('Task completed: startwebhooks()')
+    print('Task completed: startwebhooks()\n---------------\n')
 
 @tasks.loop(minutes=5)
 async def incremental_sync():
     await bot.wait_until_ready()
-    print ('Starting task: incremental_sync()...')
+    print ('\n---------------\nStarting task: incremental_sync()...')
     calapi_incrementalsync()
-    print('Task completed: incremental_sync()')
+    print('Task completed: incremental_sync()\n---------------\n')
 
 @tasks.loop(minutes=1)
 async def get_upcoming():
     await bot.wait_until_ready()
-    print ('Starting task: get_upcoming()...')
+    print ('\n---------------\nStarting task: get_upcoming()...')
     events = calapi_getupcoming()
     if events == None:
-        print('Task completed: get_upcoming(). Result: There are no events coming up.')
+        print('Task completed: get_upcoming(). Result: There are no events coming up.\n---------------\n')
         return
     else:
         print('get_upcoming(): Events found.')
         for event in events:
             if event['id'] in seen_events:
-                print(f'get_upcoming(): Event "{event['id']}" already seen. Skipping...')
+                print(f'get_upcoming(): Event {event["id"]} already seen. Skipping...')
                 continue
             else:
-                print(f'get_upcoming(): Event "{event['id']}" not seen. Sending notification...')
+                print(f'get_upcoming(): Event {event["id"]} not seen. Sending notification...')
                 seen_events.append(event['id'])
-                print(f'get_upcoming(): Event "{event['id']}" added to seen_events')
+                print(f'get_upcoming(): Event {event["id"]} added to seen_events')
                 channel = bot.get_channel(1148414047704850432)
                 embed = discord.Embed(title=event['summary'], color=discord.Colour.dark_magenta())
                 start = event['start'].get('dateTime')
                 if start == None:
-                    print(f'get_upcoming(): Event "{event['id']}" is a full day event. Setting date only...')
+                    print(f'get_upcoming(): Event {event["id"]} is a full day event. Setting date only...')
                     start = event['start'].get('date')
                     embed.description = datetime.datetime.strftime(dtparse(start), format='%B %d, %Y')
                     embed.add_field(name="Time", value="TBD", inline=True)
                 else:
-                    print(f'get_upcoming(): Event "{event['id']}" is a timed event. Setting date and time...')
+                    print(f'get_upcoming(): Event {event["id"]} is a timed event. Setting date and time...')
                     tmfmt = '%B %d, %Y'
                     sdate = datetime.datetime.strftime(dtparse(start), format=tmfmt)
                     embed.description = sdate
@@ -329,23 +282,23 @@ async def get_upcoming():
                 try:
                     embed.add_field(name="Location", value=event['location'], inline=False)
                 except:
-                    print(f'get_upcoming(): Event "{event['id']}" has no location. Skipping...')
+                    print(f'get_upcoming(): Event {event["id"]} has no location. Skipping...')
                     pass
                 try:
                     embed.add_field(name="Description", value=event['description'], inline=False)
                 except:
-                    print(f'get_upcoming(): Event "{event['id']}" has no description. Skipping...')
+                    print(f'get_upcoming(): Event {event["id"]} has no description. Skipping...')
                     pass
                 embed.add_field(name="More Details", value=f"[View in Google Calendar]({event.get('htmlLink')})", inline=False)
                 try:
                     message = await channel.send('An event is coming up! See details below.', embed=embed)
                     if channel.type == discord.ChannelType.news:
                         await message.publish()
-                    print(f'get_upcoming(): Message sent for event "{event['id']}"')
+                    print(f'get_upcoming(): Message sent for event {event["id"]}')
                 except Exception as e:
                     print(f'get_upcoming(): An error occurred while sending the message. Error: {e}')
                     pass
-    print('Task completed: get_upcoming()')
+    print('Task completed: get_upcoming()\n---------------\n')
 
 @bot.slash_command(name="ping", description="Simple command to test if the bot is responsive", guild_ids=GUILD_IDS)
 async def ping(ctx):
@@ -358,7 +311,7 @@ async def help(ctx):
         color=discord.Colour.dark_magenta(), 
         description="Welcome to Acabot, a bot made to assist you in all you acapella needs! See below for a list of commands and their descriptions."
     )
-    embed.set_author(name="Acabot", icon_url='https://cdn.discordapp.com/avatars/1148739423001915423/74a8f73e52d99fb77aab13a1ba73d530?size=1024')
+    embed.set_author(name="Acabot", icon_url='https://cdn.discordapp.com/avatars/1148739423001915423/a55dd65701d1cb0a0903be088c681390?size=1024')
     embed.add_field(name="/calendar", 
                     value="Commands in this group are used to interact with Google Calendar. Type '/calendar' for a full list of what you can do. Some commands take a 'calendar' as an option, but if your server is only handling one calendar (like the Fredonia Acapella server), you can leave this blank.", 
                     inline=False)
@@ -391,10 +344,10 @@ async def list(ctx,
                hide_response: Option(bool, description="If true, only you will be able to see the bot's response. Set to False if left blank", required=False)):
     calid = getCalID(ctx, calendar)
     eventslist = calapi_getevents(calid)
-    print(eventslist)
     if eventslist == None:
         await ctx.respond("There are no upcoming events!", ephemeral=hide_response)
         return
+    print("/calendar list: Events have been found.")
     embed = discord.Embed(title="Upcoming Events", color=discord.Colour.dark_magenta(), description="Here's whats coming up:")
     for event in eventslist:
         start = event['start'].get('dateTime')
@@ -403,7 +356,13 @@ async def list(ctx,
             stime = datetime.datetime.strftime(dtparse(start), format=tmfmt)
         except:
             stime = datetime.datetime.strftime(dtparse(event['start'].get('date')), format='%B %d, %Y')
-        embed.add_field(name=event['summary'], value=stime, inline=False)
+        embedValue = f'{stime}'
+        if "youtube.com" in str(event.get('description')):
+            split = str(event.get('description')).split(' ')
+            for item in split:
+                if "youtube.com" in item:
+                    embedValue = f'{stime} \n [Watch on YouTube]({item})'
+        embed.add_field(name=event['summary'], value=embedValue, inline=False)
     
     await ctx.respond(embed=embed, ephemeral=hide_response)
 

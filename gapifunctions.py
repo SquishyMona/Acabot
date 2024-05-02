@@ -153,7 +153,7 @@ def calapi_getevents(calid: str):
     try:
         service = build('calendar', 'v3', credentials=credentials)
 
-        now = datetime.datetime.utcnow().isoformat() + 'Z'
+        now = datetime.datetime.now(datetime.UTC).isoformat() + 'Z'
         print('Getting the upcoming 10 events')
         events_result = service.events().list(calendarId=calid, timeMin=now,
                                               maxResults=10, singleEvents=True,
