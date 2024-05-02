@@ -125,16 +125,17 @@ def calapi_getupcoming():
     try:
         service = build('calendar', 'v3', credentials=credentials)
 
-        now = datetime.datetime.utcnow().isoformat() + 'Z'
-        maxTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        now = datetime.datetime.now(datetime.UTC).isoformat() + 'Z'
+        maxTime = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=2)
         maxTime = maxTime.isoformat() + 'Z'
-        print('Getting the upcoming 10 events')
+        print('Getting the upcoming 10 events...')
         events_result = service.events().list(calendarId=os.getenv('ACAPELLA_CAL_ID'), timeMin=now,
                                               timeMax=maxTime,
                                               maxResults=10, singleEvents=True,
                                               orderBy='startTime').execute()
         events = events_result.get('items', [])
-        print(events_result)
+        if events_result is not None:
+            print("Events found.")
 
         if not events:
             print('No upcoming events found.')

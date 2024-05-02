@@ -22,7 +22,7 @@ from pytz import timezone
 # Guild IDs can be changed to fit your guilds.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 SERVICE_ACCOUNT_FILE = 'acabot-398317-b2293b5c6d43.json'
-GUILD_IDS = [1148389231484489860, 608476415825936394, 1118643846688030730]
+GUILD_IDS = [1148389231484489860, 608476415825936394, 1118643846688030730, 1199791925046296686]
 
 # Loads enviornment variables, which contains our bot token needed to run the bot
 load_dotenv()
@@ -280,34 +280,45 @@ async def on_scheduled_event_delete(event: discord.ScheduledEvent):
 @tasks.loop(hours=167)
 async def startwebhooks():
     await bot.wait_until_ready()
+    print('Starting task: startwebhooks()...')
     calapi_startwebhooks()
+    print('Task completed: startwebhooks()')
 
 @tasks.loop(minutes=5)
 async def incremental_sync():
     await bot.wait_until_ready()
+    print ('Starting task: incremental_sync()...')
     calapi_incrementalsync()
+    print('Task completed: incremental_sync()')
 
 @tasks.loop(minutes=1)
 async def get_upcoming():
     await bot.wait_until_ready()
-    print('Starting Task')
+    print ('Starting task: get_upcoming()...')
     events = calapi_getupcoming()
     if events == None:
+        print('Task completed: get_upcoming(). Result: There are no events coming up.')
         return
     else:
+        print('get_upcoming(): Events found.')
         for event in events:
             if event['id'] in seen_events:
+                print(f'get_upcoming(): Event "{event['id']}" already seen. Skipping...')
                 continue
             else:
+                print(f'get_upcoming(): Event "{event['id']}" not seen. Sending notification...')
                 seen_events.append(event['id'])
+                print(f'get_upcoming(): Event "{event['id']}" added to seen_events')
                 channel = bot.get_channel(1148414047704850432)
                 embed = discord.Embed(title=event['summary'], color=discord.Colour.dark_magenta())
                 start = event['start'].get('dateTime')
                 if start == None:
+                    print(f'get_upcoming(): Event "{event['id']}" is a full day event. Setting date only...')
                     start = event['start'].get('date')
                     embed.description = datetime.datetime.strftime(dtparse(start), format='%B %d, %Y')
                     embed.add_field(name="Time", value="TBD", inline=True)
                 else:
+                    print(f'get_upcoming(): Event "{event['id']}" is a timed event. Setting date and time...')
                     tmfmt = '%B %d, %Y'
                     sdate = datetime.datetime.strftime(dtparse(start), format=tmfmt)
                     embed.description = sdate
@@ -318,16 +329,23 @@ async def get_upcoming():
                 try:
                     embed.add_field(name="Location", value=event['location'], inline=False)
                 except:
+                    print(f'get_upcoming(): Event "{event['id']}" has no location. Skipping...')
                     pass
                 try:
                     embed.add_field(name="Description", value=event['description'], inline=False)
                 except:
+                    print(f'get_upcoming(): Event "{event['id']}" has no description. Skipping...')
                     pass
                 embed.add_field(name="More Details", value=f"[View in Google Calendar]({event.get('htmlLink')})", inline=False)
-                message = await channel.send('An event is coming up! See details below.', embed=embed)
-                if channel.type == discord.ChannelType.news:
-                    await message.publish()
-
+                try:
+                    message = await channel.send('An event is coming up! See details below.', embed=embed)
+                    if channel.type == discord.ChannelType.news:
+                        await message.publish()
+                    print(f'get_upcoming(): Message sent for event "{event['id']}"')
+                except Exception as e:
+                    print(f'get_upcoming(): An error occurred while sending the message. Error: {e}')
+                    pass
+    print('Task completed: get_upcoming()')
 
 @bot.slash_command(name="ping", description="Simple command to test if the bot is responsive", guild_ids=GUILD_IDS)
 async def ping(ctx):
@@ -761,7 +779,7 @@ class PollView(discord.ui.View):
         activepolls[self.id][interaction.user.id] = button.custom_id
 
 @bot.slash_command(name="poll", description="Create a poll with the given question and options", guild_ids=GUILD_IDS)
-async def poll(ctx, 
+async def poll(ctx: commands.Context, 
                question: str, 
                option1: str, 
                option2: str, 
@@ -795,7 +813,10 @@ async def poll(ctx,
             view.children[5].callback = view.children[0].callback
             embed.add_field(name=option6, value="0", inline=True)
         #await ctx.respond(embed=embed, view=view)
-        await ctx.channel.send(embed=embed, view=view)
+        if ctx.guild.id == 1118643846688030730:
+            await ctx.channel.send("Please fill out the following poll @everyone", embed=embed, view=view)
+        else:
+            await ctx.channel.send(embed=embed, view=view)
         await ctx.respond("Your poll has been created!", ephemeral=True)
     except Exception as e:
         await ctx.respond(f"Something went wrong! You can always try manually creating a poll!")
