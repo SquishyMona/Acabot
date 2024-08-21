@@ -60,59 +60,59 @@ def calapi_startwebhooks():
     except:
         print('No active channels found. Are you in the right directory?')
 
-    acapella = {
-    'id': str(uuid.uuid4()),
-    'type': 'web_hook',
-    'address': os.getenv('HTTP_REQUEST_URL'),
-    'token': 'target=acabot-acapella'
-    }
-
-    slihrehearsal = {
-    'id': str(uuid.uuid4()),
-    'type': 'web_hook',
-    'address': os.getenv('HTTP_REQUEST_URL'),
-    'token': 'target=slih-rehearsal'
-    }
-
-    slihgig = {
-    'id': str(uuid.uuid4()),
-    'type': 'web_hook',
-    'address': os.getenv('HTTP_REQUEST_URL'),
-    'token': 'target=slih-rehearsal'
-    }
-
-    responseaca = service.events().watch(
-        calendarId=os.getenv('ACAPELLA_CAL_ID'), 
-        body=acapella).execute()
-    print(responseaca)
-
-    responseslihreh = service.events().watch(
-        calendarId=os.getenv('SLIH_REH_CAL_ID'), 
-        body=slihrehearsal).execute()
-    print(responseslihreh)
-
-    responseslihgig = service.events().watch(
-        calendarId=os.getenv('SLIH_GIGS_CAL_ID'),
-        body=slihgig).execute()
-    print(responseslihgig)
-
-    newactivechannels= {
-        'acapella': {
-            'id': responseaca.get('id'),
-            'resourceId': responseaca.get('resourceId')
-        },
-        'slihrehearsals': {
-            'id': responseslihreh.get('id'),
-            'resourceId': responseslihreh.get('resourceId')
-        },
-        'slihgigs': {
-            'id': responseslihgig.get('id'),
-            'resourceId': responseslihgig.get('resourceId')
-        }
-    }
-
-    with open('activechannels.json', 'w') as f:
-        json.dump(newactivechannels, f)
+    #acapella = {
+    #'id': str(uuid.uuid4()),
+    #'type': 'web_hook',
+    #'address': os.getenv('HTTP_REQUEST_URL'),
+    #'token': 'target=acabot-acapella'
+    #}
+#
+    #slihrehearsal = {
+    #'id': str(uuid.uuid4()),
+    #'type': 'web_hook',
+    #'address': os.getenv('HTTP_REQUEST_URL'),
+    #'token': 'target=slih-rehearsal'
+    #}
+#
+    #slihgig = {
+    #'id': str(uuid.uuid4()),
+    #'type': 'web_hook',
+    #'address': os.getenv('HTTP_REQUEST_URL'),
+    #'token': 'target=slih-rehearsal'
+    #}
+#
+    #responseaca = service.events().watch(
+    #    calendarId=os.getenv('ACAPELLA_CAL_ID'), 
+    #    body=acapella).execute()
+    #print(responseaca)
+#
+    #responseslihreh = service.events().watch(
+    #    calendarId=os.getenv('SLIH_REH_CAL_ID'), 
+    #    body=slihrehearsal).execute()
+    #print(responseslihreh)
+#
+    #responseslihgig = service.events().watch(
+    #    calendarId=os.getenv('SLIH_GIGS_CAL_ID'),
+    #    body=slihgig).execute()
+    #print(responseslihgig)
+#
+    #newactivechannels= {
+    #    'acapella': {
+    #        'id': responseaca.get('id'),
+    #        'resourceId': responseaca.get('resourceId')
+    #    },
+    #    'slihrehearsals': {
+    #        'id': responseslihreh.get('id'),
+    #        'resourceId': responseslihreh.get('resourceId')
+    #    },
+    #    'slihgigs': {
+    #        'id': responseslihgig.get('id'),
+    #        'resourceId': responseslihgig.get('resourceId')
+    #    }
+    #}
+#
+    #with open('activechannels.json', 'w') as f:
+    #    json.dump(newactivechannels, f)
 
 def calapi_incrementalsync():
     url = os.getenv('HTTP_REQUEST_URL')

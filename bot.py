@@ -1,4 +1,6 @@
 import os
+
+import discord.bot
 os.system("pip uninstall --yes discord.py py-cord")
 os.system("pip install --no-input py-cord")
 
@@ -33,6 +35,12 @@ bot = discord.Bot()
 # This is used to prevent users from voting more than once on a single poll.
 activepolls = {}
 
+# This object holds the id's for all servers that have a conflicts list, the channel id of the conflicts
+# channel, and any conflict dates they may have added
+conflictlists = {}
+
+activeconflicts = {}
+
 # This object holds the queue of music when using music commands
 musicqueue = wavelink.Queue()
 
@@ -63,11 +71,33 @@ async def connect_nodes(self):
 @bot.event
 async def on_ready():
     bot.add_view(PollView())
+    bot.add_view(ConflictView())
     print(f'{bot.user} is online and ready')
     #await connect_nodes()
     incremental_sync.start()
     get_upcoming.start()
     startwebhooks.start()
+    print('Loading active conflicts')
+    try:
+        with open('conflicts.json', 'r') as file:
+            global activeconflicts
+            activeconflicts = json.load(file)
+            print('Active conflicts loaded')
+    except Exception as e:
+        print('No active conflicts found')
+        print(e.with_traceback())
+    print('Loading conflict channels')
+    try:
+        with open('conflictchannels.json', 'r') as file:
+            global conflictlists
+            conflictlists = json.load(file)
+            print('Conflict channels loaded')
+    except Exception as e:
+        print('No conflict channels found')
+        print(e.with_traceback())
+
+
+    
 
 @bot.event
 async def on_wavelink_node_ready(node: wavelink.Node):
@@ -781,6 +811,122 @@ async def poll(ctx: commands.Context,
         await ctx.respond(f"Something went wrong! You can always try manually creating a poll!")
         print(e)
 
+conflicts = SlashCommandGroup("conflicts", "Commands used to interact with the conflict checker", guild_ids=GUILD_IDS)
+
+@conflicts.command(name="channel", description="Set the channel to send conflict notifications to", guild_ids=GUILD_IDS)
+@commands.has_permissions(manage_channels=True)
+async def conflictchannel(ctx: commands.Context, 
+                          channel: Option(discord.TextChannel, description="The channel you want to send conflict notifications to")):
+    conflictlists[ctx.guild.id] = channel.id
+    with open("conflictchannels.json", "r+") as f:
+        f.seek(0)
+        json.dump(conflictlists, f, indent=4)
+    await channel.send("Conflict notifications will now be sent here!")
+    await ctx.respond(f"Conflict notifications will now be sent to {channel.mention}", ephemeral=True)
+
+class ConflictView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def on_timeout(self):
+        self.disable_all_items()
+        await self.message.delete()
+
+    @discord.ui.button(label="I'm Going To This!", custom_id="goingbtn", style=discord.ButtonStyle.blurple)
+    async def going(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer()
+        messageid = str(interaction.message.id)
+        if interaction.user.id in activeconflicts[messageid]['going']:
+            activeconflicts[messageid]['going'].remove(interaction.user.id)
+            goingstr = ""
+            for member in activeconflicts[str(interaction.message.id)]["going"]:
+                goingstr += f"<@{member}>\n"
+            await self.message.edit(embed=self.message.embeds[0].set_field_at(3, name="People Going", value=goingstr, inline=False))
+            await interaction.followup.send(f'''You've unmarked yourself as going to this event!''', ephemeral=True)
+            with open("conflicts.json", "r+") as f:
+                f.seek(0)
+                json.dump(activeconflicts, f, indent=4)
+            return
+        else:
+            activeconflicts[str(interaction.message.id)]['going'].append(interaction.user.id)
+            goingstr = ""
+            for member in activeconflicts[str(interaction.message.id)]["going"]:
+                goingstr += f"<@{member}>\n"
+            await self.message.edit(embed=self.message.embeds[0].set_field_at(3, name="People Going", value=goingstr, inline=False))
+            await interaction.followup.send(f'''Thank you for letting us know! If this was a mistake, click the "I'm Going To This" button again!''', ephemeral=True)
+            with open("conflicts.json", "r+") as f:
+                f.seek(0)
+                json.dump(activeconflicts, f, indent=4)
+            return
+        
+class ConflictModal(discord.ui.Modal):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.add_item(discord.ui.InputText(label="Event Name", placeholder="Title of the event you're adding", required=True, style=discord.InputTextStyle.short))
+        self.add_item(discord.ui.InputText(label="Description", placeholder="What is this event for?", required=False, style=discord.InputTextStyle.long))
+        self.add_item(discord.ui.InputText(label="Date", placeholder="The date of the event", required=True, style=discord.InputTextStyle.short))
+        self.add_item(discord.ui.InputText(label="Start Time", placeholder="What time the event starts (Optional) (Please format like this: 11:00PM)", required=False, style=discord.InputTextStyle.short))
+        self.add_item(discord.ui.InputText(label="End Time", placeholder="What time the event ends (Optional) (Please format like this: 11:00PM)", required=False, style=discord.InputTextStyle.short))
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        try:
+            view = ConflictView()
+            new_data = {
+                'id': '',
+                'title': self.children[0].value, 
+                'description': self.children[1].value, 
+                'date': self.children[2].value,
+                'starttime': self.children[3].value,
+                'endtime': self.children[4].value,
+                'going': []
+            }
+            embed = discord.Embed(title=new_data['title'], description=new_data['description'], color=0x00ff00)
+            embed.add_field(name="Date", value=new_data['date'], inline=False)
+            embed.add_field(name="Start Time", value=new_data['starttime'], inline=True)
+            embed.add_field(name="End Time", value=new_data['endtime'], inline=True)
+            embed.add_field(name="People Going", value='', inline=False)
+
+            sendchannel = bot.get_channel(conflictlists.get(str(interaction.guild.id)))
+            message = await sendchannel.send(f'''A potential conflict has been posted. Please indicate if you will be going to this by clicking "I'm Going To This!"''', embed=embed, view=view)
+            new_data['id'] = message.id
+            with open("conflicts.json", "r+") as f:
+                activeconflicts[message.id] = new_data
+                f.seek(0)
+                json.dump(activeconflicts, f, indent=4)
+            await interaction.respond("This conflict has been posted!", ephemeral=True)
+        except Exception as e:
+            print(e.with_traceback())
+            await interaction.respond("Something went wrong! Please try again.")
+
+
+@conflicts.command(name="add", description="Add an event to the conflicts list", guild_ids=GUILD_IDS)
+async def conflictadd(ctx: commands.Context):
+    if str(ctx.guild.id) in conflictlists.keys():
+        modal = ConflictModal(title="Add a new conflict")
+        await ctx.send_modal(modal)
+    else:
+        await ctx.respond("There is no conflicts channel set up for this server! If you're a server admin, use /conflicts channel, followed by the channel ID of the channel you'd like to designate.")
+        return
+
+@conflicts.command(name="remove", description="Remove an event from the conflicts list", guild_ids=GUILD_IDS)
+@commands.has_permissions(manage_channels=True)
+async def conflictremove(ctx: commands.Context, 
+                         eventid: Option(str, description="The ID of the event you want to remove")):
+    try:
+        message = bot.get_message(int(eventid))
+        await message.delete()
+        with open("conflicts.json", "r+") as f:
+            activeconflicts.pop(eventid)
+            f.seek(0)
+            json.dump(activeconflicts, f, indent=4)
+        await ctx.respond("The event has been removed from the conflicts list!")
+    except Exception as e:
+        await ctx.respond("Something went wrong! Please try again.")
+        print(e)
+    
+bot.add_application_command(conflicts)
 bot.add_application_command(calendar)
 bot.add_application_command(music)
 
