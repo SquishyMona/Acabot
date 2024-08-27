@@ -8,6 +8,7 @@ import discord
 import logging
 import wavelink
 import json
+import traceback
 from dotenv import load_dotenv
 
 from gapifunctions import *
@@ -821,7 +822,7 @@ async def conflictchannel(ctx: commands.Context,
     with open("conflictchannels.json", "r+") as f:
         f.seek(0)
         json.dump(conflictlists, f, indent=4)
-    await channel.send("Conflict notifications will now be sent here!")
+    await channel.send(f'''Attention: This server has set up conflict event notifications in this channel! Please check here frequently for updates on events that may conflict with the group's schedule.\nIf you see an event that you may have to attend, please let everyone know by clicking the "I'm Going To This!" button. This will help us to better plan gigs and shows around everyone's schedule.\n\n@everyone''')
     await ctx.respond(f"Conflict notifications will now be sent to {channel.mention}", ephemeral=True)
 
 class ConflictView(discord.ui.View):
@@ -836,10 +837,15 @@ class ConflictView(discord.ui.View):
     async def going(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.defer()
         messageid = str(interaction.message.id)
-        if interaction.user.id in activeconflicts[messageid]['going']:
-            activeconflicts[messageid]['going'].remove(interaction.user.id)
+        conflictindex = 0
+        for event in activeconflicts[str(interaction.guild_id)]:
+            if str(event['id']) == messageid:
+                break
+            conflictindex += 1
+        if interaction.user.id in activeconflicts[str(interaction.guild_id)][conflictindex]['going']:
+            activeconflicts[str(interaction.guild_id)][conflictindex]['going'].remove(interaction.user.id)
             goingstr = ""
-            for member in activeconflicts[str(interaction.message.id)]["going"]:
+            for member in activeconflicts[str(interaction.guild_id)][conflictindex]['going']:
                 goingstr += f"<@{member}>\n"
             await self.message.edit(embed=self.message.embeds[0].set_field_at(3, name="People Going", value=goingstr, inline=False))
             await interaction.followup.send(f'''You've unmarked yourself as going to this event!''', ephemeral=True)
@@ -848,9 +854,9 @@ class ConflictView(discord.ui.View):
                 json.dump(activeconflicts, f, indent=4)
             return
         else:
-            activeconflicts[str(interaction.message.id)]['going'].append(interaction.user.id)
+            activeconflicts[str(interaction.guild_id)][conflictindex]['going'].append(interaction.user.id)
             goingstr = ""
-            for member in activeconflicts[str(interaction.message.id)]["going"]:
+            for member in activeconflicts[str(interaction.guild_id)][conflictindex]['going']:
                 goingstr += f"<@{member}>\n"
             await self.message.edit(embed=self.message.embeds[0].set_field_at(3, name="People Going", value=goingstr, inline=False))
             await interaction.followup.send(f'''Thank you for letting us know! If this was a mistake, click the "I'm Going To This" button again!''', ephemeral=True)
@@ -866,12 +872,15 @@ class ConflictModal(discord.ui.Modal):
         self.add_item(discord.ui.InputText(label="Event Name", placeholder="Title of the event you're adding", required=True, style=discord.InputTextStyle.short))
         self.add_item(discord.ui.InputText(label="Description", placeholder="What is this event for?", required=False, style=discord.InputTextStyle.long))
         self.add_item(discord.ui.InputText(label="Date", placeholder="The date of the event", required=True, style=discord.InputTextStyle.short))
-        self.add_item(discord.ui.InputText(label="Start Time", placeholder="What time the event starts (Optional) (Please format like this: 11:00PM)", required=False, style=discord.InputTextStyle.short))
-        self.add_item(discord.ui.InputText(label="End Time", placeholder="What time the event ends (Optional) (Please format like this: 11:00PM)", required=False, style=discord.InputTextStyle.short))
+        self.add_item(discord.ui.InputText(label="Start Time", placeholder="What time the event starts (Optional) (Ex: 11:00PM)", required=False, style=discord.InputTextStyle.short))
+        self.add_item(discord.ui.InputText(label="End Time", placeholder="What time the event ends (Optional) (Ex: 11:00PM)", required=False, style=discord.InputTextStyle.short))
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
         try:
+            if self.children[0].value in [event['title'] for event in activeconflicts[str(interaction.guild_id)]]:
+                await interaction.respond("An event with the same name already exists in the conflicts list! Please choose a different name.")
+                return
             view = ConflictView()
             new_data = {
                 'id': '',
@@ -892,7 +901,11 @@ class ConflictModal(discord.ui.Modal):
             message = await sendchannel.send(f'''A potential conflict has been posted. Please indicate if you will be going to this by clicking "I'm Going To This!"''', embed=embed, view=view)
             new_data['id'] = message.id
             with open("conflicts.json", "r+") as f:
-                activeconflicts[message.id] = new_data
+                try:
+                    activeconflicts[str(interaction.guild_id)].append(new_data)
+                except:
+                    activeconflicts[str(interaction.guild_id)] = []
+                    activeconflicts[str(interaction.guild_id)].append(new_data)
                 f.seek(0)
                 json.dump(activeconflicts, f, indent=4)
             await interaction.respond("This conflict has been posted!", ephemeral=True)
@@ -910,21 +923,68 @@ async def conflictadd(ctx: commands.Context):
         await ctx.respond("There is no conflicts channel set up for this server! If you're a server admin, use /conflicts channel, followed by the channel ID of the channel you'd like to designate.")
         return
 
+async def getconflictbyname(ctx: discord.AutocompleteContext):
+    if str(ctx.interaction.guild.id) in activeconflicts.keys():
+        return [conflict['title'] for conflict in activeconflicts[str(ctx.interaction.guild_id)]]
+
 @conflicts.command(name="remove", description="Remove an event from the conflicts list", guild_ids=GUILD_IDS)
 @commands.has_permissions(manage_channels=True)
 async def conflictremove(ctx: commands.Context, 
-                         eventid: Option(str, description="The ID of the event you want to remove")):
+                         conflictname: Option(str, description="Name of the event you want to remove", autocomplete=discord.utils.basic_autocomplete(getconflictbyname)),
+                         hide_response: Option(bool, description="If true, only you will be able to see the bot's response. Set to False if left blank", required=False),
+                         debug: Option(bool, description="Only set this if you know what you're doing", required=False)):
     try:
-        message = bot.get_message(int(eventid))
+        conflictindex = 0
+        for event in activeconflicts[str(ctx.guild_id)]:
+            if str(event['title']) == conflictname:
+                break
+            conflictindex += 1
+        messageid = activeconflicts[str(ctx.guild_id)][conflictindex]['id']
+        channel = bot.get_channel(conflictlists[str(ctx.guild_id)])
+        message: discord.Message = await channel.fetch_message(messageid)
+        print(message)
         await message.delete()
         with open("conflicts.json", "r+") as f:
-            activeconflicts.pop(eventid)
+            activeconflicts[str(ctx.guild_id)].pop(conflictindex)
             f.seek(0)
             json.dump(activeconflicts, f, indent=4)
-        await ctx.respond("The event has been removed from the conflicts list!")
+        await ctx.respond("The event has been removed from the conflicts list!", ephemeral=hide_response)
+    except KeyError as e:
+        if debug:
+            await ctx.respond(f"Event does not exist in conflicts list, displaying debug info:\n\n {traceback.print_exc()}", ephemeral=True)
+        else:
+            await ctx.respond("Could not find event. Please check the name and try again.", ephemeral=True)
+        print(traceback.print_exc())
     except Exception as e:
-        await ctx.respond("Something went wrong! Please try again.")
-        print(e)
+        if debug:
+            await ctx.respond(f"Unknown error while deleting the event. Displaying debug info:\n\n {traceback.print_exc()}", ephemeral=True)
+        else:
+            await ctx.respond(f"An error occurred while trying to remove the event. Please try again.", ephemeral=True)
+        print(traceback.print_exc())
+
+@conflicts.command(name="view" , description="View the current conflicts list", guild_ids=GUILD_IDS)
+async def conflictview(ctx: commands.Context, 
+                        conflictname: Option(str, description="Name of the event you want to remove", autocomplete=discord.utils.basic_autocomplete(getconflictbyname)),
+                        hide_response: Option(bool, description="If true, only you will be able to see the bot's response. Set to False if left blank", required=False),
+                        debug: Option(bool, description="Only set this if you know what you're doing", required=False)):
+    try:
+        conflictindex = 0
+        for event in activeconflicts[str(ctx.guild_id)]:
+            if str(event['title']) == conflictname:
+                break
+            conflictindex += 1
+        messageid = activeconflicts[str(ctx.guild_id)][conflictindex]['id']
+        channel = bot.get_channel(conflictlists[str(ctx.guild_id)])
+        message: discord.Message = await channel.fetch_message(messageid)
+        embed = message.embeds[0]
+        embed.set_footer(text="Please note: This message does not dynamically update. Please use the '/conflicts view' command to see the most up-to-date information.")
+        await ctx.respond(embed=embed, ephemeral=hide_response)
+    except Exception as e:
+        if debug:
+            await ctx.respond(f"Unknown error while finding event. Displaying debug info:\n\n {traceback.print_exc()}", ephemeral=True)
+        else:
+            await ctx.respond(f"An error occurred while trying to display the event. Please try again.", ephemeral=True)
+        print(traceback.print_exc())
     
 bot.add_application_command(conflicts)
 bot.add_application_command(calendar)
