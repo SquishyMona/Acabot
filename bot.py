@@ -1,9 +1,9 @@
 import os
 
-import discord.bot
 os.system("pip uninstall --yes discord.py py-cord")
 os.system("pip install --no-input py-cord")
 
+import discord.bot
 import discord
 import logging
 import wavelink
@@ -36,10 +36,12 @@ bot = discord.Bot()
 # This is used to prevent users from voting more than once on a single poll.
 activepolls = {}
 
-# This object holds the id's for all servers that have a conflicts list, the channel id of the conflicts
-# channel, and any conflict dates they may have added
+# This object holds the id's for all servers that have a conflicts list and the channel id for that list.
+# This object is saved to and loads from "conflictchannels.json" to persist data across bot restarts.
 conflictlists = {}
 
+# This object holds a list of all conflict events seperated by guild id. This object is saved to and loaded
+# from "conflicts.json" to persist data across bot restarts.
 activeconflicts = {}
 
 # This object holds the queue of music when using music commands
@@ -96,9 +98,6 @@ async def on_ready():
     except Exception as e:
         print('No conflict channels found')
         print(e.with_traceback())
-
-
-    
 
 @bot.event
 async def on_wavelink_node_ready(node: wavelink.Node):
