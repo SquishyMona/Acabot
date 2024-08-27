@@ -9,3 +9,4 @@ functions/synctoken.json
 firebase-debug.log
 activeevents.json
 conflictchannels.json
+conflicts.json
