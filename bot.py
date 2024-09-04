@@ -680,36 +680,38 @@ async def remove(ctx, index: int):
         await ctx.respond(f"Something went wrong!", ephemeral=True)
         print(e)
 
-@bot.slash_command(name="create_plan", description="Create a new channel with the groups of your choosing!", guild_ids=[1148389231484489860, 608476415825936394])
-@commands.has_permissions(manage_channels=True)
-async def create_plan(ctx, 
-                      name: str, 
-                      group1: Option(discord.Role, required=True),
-                      group2: Option(discord.Role, required=True),
-                      group3: Option(discord.Role, required=False),
-                      group4: Option(discord.Role, required=False),
-                      group5: Option(discord.Role, required=False),
-                      group6: Option(discord.Role, required=False)):
-    try:
-        guild = ctx.guild
-        channel = await guild.create_text_channel(name)
-        if guild.id == 1148389231484489860:
-            await channel.edit(category=guild.get_channel(1149705404394254517))
-        await channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
-        await channel.set_permissions(group1, read_messages=True, send_messages=True)
-        await channel.set_permissions(group2, read_messages=True, send_messages=True)
-        if group3:
-            await channel.set_permissions(group3, read_messages=True, send_messages=True)
-        if group4:
-            await channel.set_permissions(group4, read_messages=True, send_messages=True)
-        if group5:
-            await channel.set_permissions(group5, read_messages=True, send_messages=True)
-        if group6:
-            await channel.set_permissions(group6, read_messages=True, send_messages=True)
-        await ctx.respond(f"Channel created successfully! You can your group(s) can find it at {channel.mention}", ephemeral=True)
-    except Exception as e:
-        await ctx.respond(f"Something went wrong! You can always try manually creating a channel!", ephemeral=True)
-        print(e)
+# This command has been temporarily deprecated until further notice.
+#
+#@bot.slash_command(name="create_plan", description="Create a new channel with the groups of your choosing!", guild_ids=[1148389231484489860, 608476415825936394])
+#@commands.has_permissions(manage_channels=True)
+#async def create_plan(ctx, 
+#                      name: str, 
+#                      group1: Option(discord.Role, required=True),
+#                      group2: Option(discord.Role, required=True),
+#                      group3: Option(discord.Role, required=False),
+#                      group4: Option(discord.Role, required=False),
+#                      group5: Option(discord.Role, required=False),
+#                      group6: Option(discord.Role, required=False)):
+#    try:
+#        guild = ctx.guild
+#        channel = await guild.create_text_channel(name)
+#        if guild.id == 1148389231484489860:
+#            await channel.edit(category=guild.get_channel(1149705404394254517))
+#        await channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
+#        await channel.set_permissions(group1, read_messages=True, send_messages=True)
+#        await channel.set_permissions(group2, read_messages=True, send_messages=True)
+#        if group3:
+#            await channel.set_permissions(group3, read_messages=True, send_messages=True)
+#        if group4:
+#            await channel.set_permissions(group4, read_messages=True, send_messages=True)
+#        if group5:
+#            await channel.set_permissions(group5, read_messages=True, send_messages=True)
+#        if group6:
+#            await channel.set_permissions(group6, read_messages=True, send_messages=True)
+#        await ctx.respond(f"Channel created successfully! You can your group(s) can find it at {channel.mention}", ephemeral=True)
+#    except Exception as e:
+#        await ctx.respond(f"Something went wrong! You can always try manually creating a channel!", ephemeral=True)
+#        print(e)
     
 class PollView(discord.ui.View):
     def __init__(self):
